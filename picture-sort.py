@@ -6,6 +6,8 @@ from tkinter import ttk
 from PIL import ImageTk, Image, ImageOps
 
 class App:
+  imageExtensions = ['jpg', 'JPG', 'jpeg']
+
   def __init__(self, directory, leftDirName, rightDirName) -> None:
       self.directory = directory
       self.leftDirectory = os.path.join(directory, leftDirName)
@@ -22,7 +24,9 @@ class App:
       return f"Could not find any file in {self.directory}"
 
   def getFileList(self):
-    self.fileList  = glob.glob(f'{self.directory}/*.jpg')
+    self.fileList = []
+    for extension in App.imageExtensions:
+      self.fileList.extend(glob.glob(f'{self.directory}/*.{extension}'))
     self.fileList.sort(reverse=True)
 
   def getCurrentFileName(self):
