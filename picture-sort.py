@@ -7,6 +7,7 @@ from PIL import ImageTk, Image, ImageOps
 
 class App:
   imageExtensions = ['jpg', 'JPG', 'jpeg']
+  numberOfPreviews = 5
 
   def __init__(self, directory, leftDirName, rightDirName) -> None:
       self.directory = directory
@@ -14,9 +15,12 @@ class App:
       self.rightDirectory = os.path.join(directory, rightDirName)
       self.currentFile = None
       self.image = None
-      self.imageWidget = None
+      self.mainImageWidget = None
+      self.nextImages = []
+      self.nextImagesWidgets = []
       self.fileList = []
-      self.help = f'← or <space> : "{leftDirName}" directory | → or ⏎ : "{rightDirName}" directory | <s> : skip'
+      self.previousFiles = []
+      self.help = f'← or <space> : "{leftDirName}" directory | → or ⏎ : "{rightDirName}" directory | <s> : skip | <p> : previous'
 
   def init(self):
     self.getFileList()
@@ -32,45 +36,100 @@ class App:
   def getCurrentFileName(self):
     return os.path.basename(self.currentFile)
 
+  def getScaledImage(self, fileName, maxHeight):
+    image = Image.open(fileName)
+    if image.height > maxHeight:
+      return ImageOps.scale(image, maxHeight / image.height)
+    return image
+
   def left(self, event):
     if not self.currentFile:
       return
     print(f"<- Left     | {self.currentFile}")
-    os.renames(self.currentFile, os.path.join(self.leftDirectory, self.getCurrentFileName()))
+    dest = os.path.join(self.leftDirectory, self.getCurrentFileName())
+    os.renames(self.currentFile, dest)
+    self.previousFiles.append(dest)
     self.nextImage()
 
   def right(self, event):
     if not self.currentFile:
       return
     print(f"   Right -> | {self.currentFile}")
-    os.renames(self.currentFile, os.path.join(self.rightDirectory, self.getCurrentFileName()))
+    dest = os.path.join(self.rightDirectory, self.getCurrentFileName())
+    os.renames(self.currentFile, dest)
+    self.previousFiles.append(dest)
     self.nextImage()
 
   def skip(self, event):
     if not self.currentFile:
       return
+    self.previousFiles.append(os.path.join(self.directory, self.getCurrentFileName()))
     self.nextImage()
+
+  def previous(self, event):
+    if len(self.previousFiles) == 0:
+      return
+    
+    previousFile = self.previousFiles.pop()
+    originalFile = os.path.join(self.directory, os.path.basename(previousFile))
+    os.renames(previousFile, originalFile)
+    self.fileList.append(self.currentFile)
+    self.fileList.append(originalFile)
+
+    print(len(self.nextImages))
+    self.nextImages.insert(0, self.getScaledImage(originalFile, 200))
+    print(len(self.nextImages))
+    if (len(self.nextImages) > self.numberOfPreviews):
+      self.nextImages.insert(0, self.nextImages.pop())
+    else:
+      self.nextImages.insert(0, None)
+
+    self.nextImage()
+
 
   def nextImage(self):
     if self.image:
       self.image.close()
 
     if len(self.fileList) == 0:
-      self.imageWidget.configure(image=None, text=f"Done ! No image left in {self.directory}")
-      self.imageWidget.image = None
+      self.mainImageWidget.configure(image=None, text=f"Done ! No image left in {self.directory}")
+      self.mainImageWidget.image = None
       self.currentFile = None
       return
     
     self.currentFile = self.fileList.pop()
-    originalImage = Image.open(self.currentFile)
-    if originalImage.height > 1000:
-      self.image = ImageOps.scale(originalImage, 1000 / originalImage.height)
-    else:
-      self.image = originalImage
+    self.image = self.getScaledImage(self.currentFile, 1000)
     photoImage = ImageTk.PhotoImage(self.image)
     
-    self.imageWidget.configure(image=photoImage)
-    self.imageWidget.image = photoImage
+    self.mainImageWidget.configure(image=photoImage)
+    self.mainImageWidget.image = photoImage
+    self.previewNext()
+
+
+  def previewNext(self):
+    if len(self.nextImages) > 0:
+       firstImage = self.nextImages.pop(0)
+       if firstImage:
+         firstImage.close()
+    
+    if len(self.fileList) >= self.numberOfPreviews:
+      image = self.getScaledImage(self.fileList[-self.numberOfPreviews], 200)
+      self.nextImages.append(image)
+
+    for i in range(len(self.nextImages)):
+      photoImage = ImageTk.PhotoImage(self.nextImages[i])
+      self.nextImagesWidgets[i].configure(image=photoImage)
+      self.nextImagesWidgets[i].image = photoImage
+    
+    for i in range(self.numberOfPreviews - len(self.nextImages)):
+      self.nextImagesWidgets[self.numberOfPreviews - 1 - i].configure(image=None)
+      self.nextImagesWidgets[self.numberOfPreviews - 1 - i].image = None
+
+
+  def initializePreview(self):
+    for i in range(min(len(self.fileList), self.numberOfPreviews)):
+      image = self.getScaledImage(self.fileList[-i - 1], 200)
+      self.nextImages.append(image)
 
   def run(self):
     error = self.init()
@@ -86,14 +145,20 @@ class App:
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
     mainframe.columnconfigure(0, weight=1)
-    mainframe.rowconfigure(0, weight=1)
+    for i in range(self.numberOfPreviews):
+      mainframe.rowconfigure(i, weight=1)
 
-    self.imageWidget = ttk.Label(mainframe)
-    self.imageWidget.grid(row=0, column=0, sticky=(N, W, E))
+    self.mainImageWidget = ttk.Label(mainframe)
+    self.mainImageWidget.grid(row=0, column=0, rowspan=self.numberOfPreviews, sticky=(N, W))
+
+    for i in range(self.numberOfPreviews):
+      self.nextImagesWidgets.append(ttk.Label(mainframe))
+      self.nextImagesWidgets[i].grid(row=i, column=1, sticky=(E))
 
     helpLabel = ttk.Label(mainframe, text=self.help)
-    helpLabel.grid(row=1, column=0, sticky=(S), padx=16, pady=16)
+    helpLabel.grid(row=self.numberOfPreviews, column=0, sticky=(S), padx=16, pady=16)
 
+    self.initializePreview()
     self.nextImage()
 
     root.bind("<KeyPress-Left>", self.left)
@@ -101,6 +166,7 @@ class App:
     root.bind("<KeyPress-Right>", self.right)
     root.bind("<KeyPress-Return>", self.right)
     root.bind("<KeyPress-s>", self.skip)
+    root.bind("<KeyPress-p>", self.previous)
 
     root.mainloop()
 
